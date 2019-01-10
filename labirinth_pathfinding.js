@@ -14,7 +14,6 @@ const q = ['sword 0', 'wand 0','wand 1'];
 var loop = true;
 var turnType = 0;
 
-
 while (loop==true) {
 
     var map = [];
@@ -87,14 +86,20 @@ while (loop==true) {
 //------------------------------- turns main functions ----------------------------------
 
 function runPushTurn() {
-    getQIDistances();
-    let pushtext = findBestPush();
 
-    console.log(pushtext); // PUSH <id> <direction> | MOVE <direction> | PASS
+    getQIDistances();
+    //find the best push for both players
+    let player1Loc = {X:playerInfo[0].playerX,Y:playerInfo[0].playerY}
+    let pushtext1 = findBestPush(player1Loc);
+    let player2Loc = {X:playerInfo[1].playerX,Y:playerInfo[1].playerY}
+    let pushtext2 = findBestPush(player2Loc);
+    console.log(pushtext1, pushtext2)
+    //check if they try to push the same row or column or if they interfere
+
+    console.log(pushtext1); // PUSH <id> <direction> | MOVE <direction> | PASS
 }
 
 function runMoveTurn() {
-    
 
     found = false;
     let playerLoc = {X:playerInfo[0].playerX,Y:playerInfo[0].playerY};
@@ -147,38 +152,46 @@ function runMoveTurn() {
 //------------------------------- pathfinding algorithm ---------------------------------
 
 function pathfinding(M,currTile,QILs) {
-
+    //initiate the path with the tile we are standing on
     let Tile = M[currTile.Y][currTile.X];
+    //put this tile in the path array
     path.push(currTile);
+    //also to the already visited tiles array
     checkedItems.push(currTile);
-    
+    //main loop of the pathfinder
     main:
     for (let i in Tile) {
-
+        //we iterate the possible outgoing directions
         if (Tile[i] == 1 ) {
+            //determine the next tile in the currently investigated direction
             let nextTile = getNextTile(M,currTile, i);
-
+            //we check if we have visited this tile before
             if (compareObjects(nextTile, currTile) == false) {                
-
+                //no we havent, so lets iterate the quest items
                 for (let i in QILs) {
-                        
+                    //how close are we to the currently investigated QI?
                     checkDistances(nextTile,QILs[i]);
-
+                    //if we are standing on one
                     if (QILs[i].X == nextTile.X && QILs[i].Y == nextTile.Y){
-
+                        //we save the current path as best path
                         bestPath = bestPath.concat(copy(path));
+                        //also add the tile we are standing on
                         bestPath.push(nextTile);
+                        //and if the best path is more than 20 elements
                         if (bestPath.length>20) {
+                            //we have to cut it to be 20
                             bestPath.slice(0,20);
                         }
+                        //now we can translate the path to text
                         pathText = translatePath(bestPath);
-
+                        //and mark the task completed
                         found = true;
+                        //break out the main loop
                         break main;
                     }
 
                 }
-
+                //if we havent found a QI, we continue our search
                 found === false ? pathfinding(M,nextTile,QILs) : null;
  
             }
@@ -273,47 +286,54 @@ function translatePath(path) {
     return translatedPath.join(' ');
 }
 
-function findBestPush() {
-    
+function findBestPush(playerLoc) {
+    //iterate the current QI locations and calculate the euclidean distances
     QIs = currQItLocs.map((loc) => {
     
-        return Math.sqrt(Math.pow(playerInfo[0].playerX-loc.X,2)+Math.pow(playerInfo[0].playerY-loc.Y,2));
+        return Math.sqrt(Math.pow(playerLoc.X-loc.X,2)+Math.pow(playerLoc.Y-loc.Y,2));
     })
+    //get the closet QI
     let closestQI = Math.min(QIs);
+    //and reset the bestmove and goodmoves
     let bestmove = "";
     let goodmoves= [];
-    
-    pathfinding(map, {X:playerInfo[0].playerX,Y:playerInfo[0].playerY},currQItLocs);
-    
+    //do a pathfinding
+    pathfinding(map, playerLoc,currQItLocs);
+    //if no QI is found we try to find the best push
     if (found === false) {
-    
-        let del = 0;
-        let ins = 0;
-        
-        let coord = ""
-        
+        //declare itemToInsert - the spare tile we have for the push
+        // and itemToRemove - the one that will fall out of the map in result of the push
+        let itemToRemove = 0;
+        let itemToInsert = 0;
+        //the coordinate that will change because of the push
+        let coord = "";
+        let compareToCoord = "";
+        let prefix = 0;
+        //iterate the row and column numbers
         row:
-        for (let i=0;i<7;i++) {
-            
-            
+        for (let i = 0 ; i < 7 ; i++) {
+            //iterate the directions
             for (let d=0;d<4;++d) {
-                
-                let playerLoc = {X:playerInfo[0].playerX,Y:playerInfo[0].playerY};
+                //make a copy of the player's current location and same for the quest items
+                let playerLocMod = {X:playerLoc.X,Y:playerLoc.Y};
                 let QILocs = copy(currQItLocs);
-
+                //the coord we will change depends on the direction
+                //Y if the direction is even (UP or DOWN) column shift, X if it's odd
                 coord = d % 2 == 0 ? "Y" : "X";
                 compareToCoord = d % 2 == 0 ? "X" : "Y";
                 prefix = d === 0 || d == 3 ? -1 : 1;
                 
-                
+                //if the direction is UP or LEFT, we are going to delete a 0 coordinate
+                //and insert something to the 6th spot - end of map either bottom or right end
                 if (d === 0 || d == 3) {
                     
-                    del = 0;
-                    ins = 6;
-                    
-                    playerLoc[coord] = playerLoc[compareToCoord] == i ? parseInt(playerLoc[coord])+prefix : playerLoc[coord];
-                    playerLoc[coord] = playerLoc[coord] == -1 ? 6 : playerLoc[coord];
-                    
+                    itemToRemove = 0;
+                    itemToInsert = 6;
+                    //if player is in the row or column to be pushed, their coordinates change
+                    playerLocMod[coord] = playerLocMod[compareToCoord] == i ? parseInt(playerLocMod[coord])+prefix : playerLocMod[coord];
+                    //if player is at position -1, they are shifted off from the map => to the other edge
+                    playerLocMod[coord] = playerLocMod[coord] == -1 ? 6 : playerLocMod[coord];
+                    //now let's see the same for each of the quest items
                     QILocs.map((loc) => {
 
                         if (loc[coord] != -1) {
@@ -329,10 +349,10 @@ function findBestPush() {
                 }
                 else if (d === 1 || d == 2) {
 
-                    del = -1;
-                    ins = 0;   
-                    playerLoc[coord] = playerLoc[compareToCoord] == i ? parseInt(playerLoc[coord])+prefix : playerLoc[coord];
-                    playerLoc[coord] = playerLoc[coord] == 7 ? 0 : playerLoc[coord];
+                    itemToRemove = -1;
+                    itemToInsert = 0;   
+                    playerLocMod[coord] = playerLocMod[compareToCoord] == i ? parseInt(playerLocMod[coord])+prefix : playerLocMod[coord];
+                    playerLocMod[coord] = playerLocMod[coord] == 7 ? 0 : playerLocMod[coord];
                     
                     QILocs.map((loc) => {
 
@@ -347,30 +367,30 @@ function findBestPush() {
 
                     })
                 }
-                
-                shiftedMap = d % 2 === 0 ? copy(transpose(map)) : copy(map);
-                shiftedMap[i].splice(del,1);
-                shiftedMap[i].splice(ins,0,playerInfo[0].playerTile.split(''));
-                shiftedMap =  d % 2 === 0 ? transpose(shiftedMap) : shiftedMap;
-    
-                pathfinding(shiftedMap,playerLoc,QILocs);
-                
+                //let's transform the map as well
+                let shiftedMap = shiftMap(map,i,d, itemToInsert, itemToRemove);
+                //do a pathfinding with the shifted map and coordinates
+                pathfinding(shiftedMap,playerLocMod,QILocs);
+                //if we find a QI like this
                 if (found === true){
-                    
+                    //declare this as the best move
                     bestmove = i+" "+translateDirection(d)
                     goodmoves= [];
+                    //and break out of the push finding loop
                     break row;
                 }
+                //otherwise just see if we got closer to any of the QI-s
                 else {
                     
                     QILocs.map((loc) => {
 
-                        let distFromQI = Math.sqrt(Math.pow(playerLoc.X-loc.X,2)+Math.pow(playerLoc.Y-loc.Y,2))
+                        let distFromQI = Math.sqrt(Math.pow(playerLocMod.X-loc.X,2)+Math.pow(playerLocMod.Y-loc.Y,2))
+                        //if not, we save this push as a good one
                         if (distFromQI == closestQI){
                             
                             goodmoves.push(i+" "+translateDirection(d));
                         }
-                        
+                        //if yes, this is going to be our best push so far, but we go on with finding a better
                         else if (distFromQI < closestQI) {
                             closestQI = distFromQI;
                             bestmove = i+" "+translateDirection(d);
@@ -383,7 +403,7 @@ function findBestPush() {
         }
     }
     
-    
+    //evaluation of the results
     if (goodmoves.length > 0){
 
         return 'PUSH '+goodmoves[getRandomInt(0,goodmoves.length)];  
@@ -400,6 +420,18 @@ function findBestPush() {
 
         return 'PUSH '+ bestmove;
     }
+}
+
+function shiftMap(M, N, D, ins, rem){
+    //if we are pushing a column, we transpose the map before the push
+    let shiftedMap = D % 2 === 0 ? copy(transpose(M)) : copy(M);
+    //perform the push
+    shiftedMap[N].splice(rem,1);
+    shiftedMap[N].splice(ins,0,playerInfo[0].playerTile.split(''));
+    //redo the transope in case of column push
+    shiftedMap =  D % 2 === 0 ? transpose(shiftedMap) : shiftedMap;
+
+    return shifedMap;
 }
 
 //---------------------------- helper functions -----------------------------------------
