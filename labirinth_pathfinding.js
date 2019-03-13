@@ -25,6 +25,7 @@ while (loop==true) {
     var checkedItems=[];
     var pathText = "";
     var found = false;
+    var origDist = 0;
 
     for (let i = 0; i < 7; i++) {
         var inputs = testArr[i].split(' ');
@@ -43,7 +44,7 @@ while (loop==true) {
         const playerX = parseInt(inputs[1]);
         const playerY = parseInt(inputs[2]);
         const playerTile = inputs[3];
-        playerInfo.push({numPlayerCards:numPlayerCards,playerX:playerX,playerY:playerY,playerTile:playerTile})
+        playerInfo.push({numPlayerCards:numPlayerCards,X:playerX,Y:playerY,playerTile:playerTile})
     }
 
     const numItems = parseInt(it.length); // the total number of items available on board and on player tiles
@@ -87,29 +88,34 @@ while (loop==true) {
 
 function runPushTurn() {
 
-    getQIDistances();
+    origDist = getClosestQI(currQItLocs);
     //find the best push for both players
-    let player1Loc = {X:playerInfo[0].playerX,Y:playerInfo[0].playerY}
-    let pushtext1 = findBestPush(player1Loc);
-    let player2Loc = {X:playerInfo[1].playerX,Y:playerInfo[1].playerY}
-    let pushtext2 = findBestPush(player2Loc);
-    console.log(pushtext1, pushtext2)
+    let player1Loc = {X:playerInfo[0].X,Y:playerInfo[0].Y};
+    let pushData1 = findBestPush(player1Loc);
+    let player2Loc = {X:playerInfo[1].X,Y:playerInfo[1].Y};
+    let pushData2 = findBestPush(player2Loc);
+
+    if (pushData1[0] == pushData2[0] && pushData1[1] % 2 == pushData2[1] % 2) {
+        pushData1 = [getRandomInt(0,7),getRandomInt(0,4)];
+    }
+
     //check if they try to push the same row or column or if they interfere
 
-    console.log(pushtext1); // PUSH <id> <direction> | MOVE <direction> | PASS
+    console.log("PUSH "+pushData1[0]+" "+translateDirection(pushData1[1])); // PUSH <id> <direction> | MOVE <direction> | PASS
 }
 
 function runMoveTurn() {
 
     found = false;
-    let playerLoc = {X:playerInfo[0].playerX,Y:playerInfo[0].playerY};
+    let playerLoc = {X:playerInfo[0].X,Y:playerInfo[0].Y};
     
+    let cQILs = copy(currQItLocs);
     let QIWithNegativeX = numQuests;
     let foundNegative = false;
     
-    for (let i in currQItLocs) {
+    for (let i in cQILs) {
 
-        if (currQItLocs[i].X == -1) {
+        if (cQILs[i].X == -1) {
             foundNegative = true;
             QIWithNegativeX = i;
             
@@ -117,10 +123,9 @@ function runMoveTurn() {
         
     }
     
-    foundNegative == true ? currQItLocs.splice(QIWithNegativeX,1) : null;
-    getQIDistances();
-    
-    pathfinding(map,playerLoc,currQItLocs);
+    foundNegative === true ? cQILs.splice(QIWithNegativeX,1) : null;
+    origDist = getClosestQI(cQILs);
+    pathfinding(map,playerLoc,cQILs);
     
     if (found === true) {
         
@@ -131,17 +136,20 @@ function runMoveTurn() {
             checkedItems = [];
             let lastFoundQI = numQuests;
             
-            for (let item in currQItLocs) {
+            for (let item in cQILs) {
 
-                if (currQItLocs[item].X == bestPath[bestPath.length-1].X && currQItLocs[item].Y == bestPath[bestPath.length-1].Y) {
+                if (cQILs[item].X == bestPath[bestPath.length-1].X && cQILs[item].Y == bestPath[bestPath.length-1].Y) {
                     lastFoundQI = item;
                     
                 }
             }
 
-            currQItLocs.splice(lastFoundQI,1)
-            getQIDistances();
-            pathfinding(map,bestPath[bestPath.length-1],currQItLocs);
+            cQILs.splice(lastFoundQI,1);
+            origDist = getClosestQI(cQILs);
+
+            if (cQILs.length > 0){
+                pathfinding(map,bestPath[bestPath.length-1],cQILs);
+            }
         }
     }
     
@@ -166,7 +174,7 @@ function pathfinding(M,currTile,QILs) {
             //determine the next tile in the currently investigated direction
             let nextTile = getNextTile(M,currTile, i);
             //we check if we have visited this tile before
-            if (compareObjects(nextTile, currTile) == false) {                
+            if (compareObjects(nextTile, currTile) === false) {                
                 //no we havent, so lets iterate the quest items
                 for (let i in QILs) {
                     //how close are we to the currently investigated QI?
@@ -222,7 +230,7 @@ function getNextTile(M,currTile,direction) {
 function checkDistances(nextTile,QIL) {
 
     
-    let currDist = Math.sqrt(Math.pow(QIL.X-nextTile.X,2)+Math.pow(QIL.Y-nextTile.Y,2));
+    let currDist = euclidean(QIL,nextTile);
 
     if (currDist < origDist) {
         
@@ -237,29 +245,29 @@ function checkDistances(nextTile,QIL) {
 
 function getQuestItems (items,quests) {
     
-    let currQItLocs = [];
+    let currQItLs = [];
     
     quests.map((quest) => {
         items.map((item) => {
             if (quest.PlId == 0 && item.PlId == 0 && quest.Name == item.Name){
-                currQItLocs.push({itemName:item.Name,X:item.X,Y:item.Y});
+                currQItLs.push({itemName:item.Name,X:item.X,Y:item.Y});
             }
         })
     })
 
-    return currQItLocs
+    return currQItLs
 }
 
-function getQIDistances() {
-    
-    var QIDistances = [];
-    for (let i in currQItLocs) {
+function getClosestQI(QILs) {
+
+    let Distances = [];
+    for (let i in QILs) {
         
-        QIDistances.push(Math.sqrt(Math.pow(currQItLocs[i].X-playerInfo[0].playerX,2)+Math.pow(currQItLocs[i].Y-playerInfo[0].playerY,2)));
+        Distances.push(euclidean(QILs[i],playerInfo[0]));
 
     }
 
-    origDist = Math.min(...QIDistances);
+    return Math.min(...Distances);
 
 }
 
@@ -290,12 +298,12 @@ function findBestPush(playerLoc) {
     //iterate the current QI locations and calculate the euclidean distances
     QIs = currQItLocs.map((loc) => {
     
-        return Math.sqrt(Math.pow(playerLoc.X-loc.X,2)+Math.pow(playerLoc.Y-loc.Y,2));
+        return euclidean(playerLoc,loc);
     })
     //get the closet QI
     let closestQI = Math.min(QIs);
     //and reset the bestmove and goodmoves
-    let bestmove = "";
+    let bestmove = [];
     let goodmoves= [];
     //do a pathfinding
     pathfinding(map, playerLoc,currQItLocs);
@@ -374,7 +382,7 @@ function findBestPush(playerLoc) {
                 //if we find a QI like this
                 if (found === true){
                     //declare this as the best move
-                    bestmove = i+" "+translateDirection(d)
+                    bestmove = [i,d];
                     goodmoves= [];
                     //and break out of the push finding loop
                     break row;
@@ -384,16 +392,16 @@ function findBestPush(playerLoc) {
                     
                     QILocs.map((loc) => {
 
-                        let distFromQI = Math.sqrt(Math.pow(playerLocMod.X-loc.X,2)+Math.pow(playerLocMod.Y-loc.Y,2))
+                        let distFromQI = euclidean(playerLocMod,loc);
                         //if not, we save this push as a good one
-                        if (distFromQI == closestQI){
+                        if (distFromQI == closestQI) {
                             
-                            goodmoves.push(i+" "+translateDirection(d));
+                            goodmoves.push([i,d]);
                         }
                         //if yes, this is going to be our best push so far, but we go on with finding a better
                         else if (distFromQI < closestQI) {
                             closestQI = distFromQI;
-                            bestmove = i+" "+translateDirection(d);
+                            bestmove = [i,d];
                             goodmoves= [];
                         }
 
@@ -404,21 +412,22 @@ function findBestPush(playerLoc) {
     }
     
     //evaluation of the results
-    if (goodmoves.length > 0){
+    if (goodmoves.length > 0) {
 
-        return 'PUSH '+goodmoves[getRandomInt(0,goodmoves.length)];  
+        return goodmoves[getRandomInt(0,goodmoves.length)];  
     }
         
-    else if (bestmove == ""){
+    else if (bestmove.length === 0) {
 
-        let dir = translateDirection(getRandomInt(0,4));
         let col = getRandomInt(0,7);
-        return 'PUSH '+col+' '+dir;
+        let dir = getRandomInt(0,4);
+
+        return [col,dir];
     
     }
     else {
 
-        return 'PUSH '+ bestmove;
+        return bestmove;
     }
 }
 
@@ -431,10 +440,29 @@ function shiftMap(M, N, D, ins, rem){
     //redo the transope in case of column push
     shiftedMap =  D % 2 === 0 ? transpose(shiftedMap) : shiftedMap;
 
-    return shifedMap;
+    return shiftedMap;
 }
 
 //---------------------------- helper functions -----------------------------------------
+
+function translateDirection (value){
+    
+    switch (value) {
+    
+    case 0:
+        return "UP";
+
+    case 1:
+        return "RIGHT";
+
+    case 2:
+        return "DOWN";
+
+    case 3:
+        return "LEFT";
+
+    }
+}
 
 function contains (element) {
     
@@ -459,25 +487,6 @@ function getRandomInt(min, max) {
   return Math.floor(Math.random() * (max - min)) + min;
 }
 
-function translateDirection (value){
-    
-    switch (value) {
-    
-    case 0:
-        return "UP";
-
-    case 1:
-        return "RIGHT";
-
-    case 2:
-        return "DOWN";
-
-    case 3:
-        return "LEFT";
-
-    }
-}
-
 function copy(aObject) {
   if (!aObject) {
     return aObject;
@@ -499,4 +508,8 @@ function transpose(a) {
             return row[col];
         });
     });
+}
+
+function euclidean(a,b){
+    return Math.sqrt(Math.pow(a.X-b.X,2)+Math.pow(a.Y-b.Y,2));
 }
