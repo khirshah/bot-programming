@@ -1,70 +1,174 @@
+/**
+ * Auto-generated code below aims at helping you parse
+ * the standard input according to the problem statement.
+ **/
+
 const playRound = (recipes, myBag, spellbook, tome) => {
     let action;
     //sort recipes by reward
     const ratedRecipes = rateRecipes(recipes, myBag.resources);
-    //possible sort orders are: rating and price at the moment
+    //possible sort orders are: rating and reward at the moment
     const sortedRecipes = sortRecipesBy(ratedRecipes, 'rating');
-    //console.error('tome: ', tome, 'spellbook: ',spellbook);
-    //console.error(sortedRecipes);
-    //check is any of them can be brewed
-    const potionToBrew = canAffordBrew(sortedRecipes[0], myBag.resources);
-    console.error(potionToBrew);
+    const chosenRecipe = sortedRecipes[0];
+    //check if selected recipe can be brewed
+    const potionToBrew = canAffordBrew(chosenRecipe, myBag.resources);
     if (potionToBrew === 'NONE') {
-        //none of them are affordable so let's pick the one with the highest reward
-        const chosenRecipe = sortedRecipes[0];
         //select a spell to cast
-        const spellToCast = useMagic(spellbook, myBag.resources, chosenRecipe);
-        if (spellToCast === 'NONE') {
-            action = 'REST';
-        } else {
-            action = `CAST ${spellToCast}`
-        }
+        action = selectSpellToCastOrLearn(tome, spellbook, myBag.resources, chosenRecipe);
     } else {
         action = `BREW ${potionToBrew}`
     }
-    console.error(action);
     return action;
 }
 
 //---------------------- spells ----------------------------------------
-const canCast = (spell) => {
-    if (spell.castable) {
-        return spell.id;
+const selectSpellToCastOrLearn = (tome, spellbook, resources, recipe) => {
+    //take current state of resources
+    const currentHandlingTime = calculateHandlingTime(recipe.ingredients, resources);
+    const bestSpellToLearn = selectBestSpellToLearn(tome, resources, recipe, currentHandlingTime);
+    const bestSpellToCast = selectBestSpellToCast(spellbook, resources, recipe, currentHandlingTime);
+    //shall we learn? or shall we cast?
+    //if suggested spell doesn't remove stuff from your bag, learn it
+    if(bestSpellToLearn != 'NONE' && spellOnlyAddsToBag(bestSpellToLearn)) {
+        return `LEARN ${bestSpellToLearn.id}`;
+    } else if (bestSpellToLearn != 'NONE' && bestSpellToCast != 'NONE') {
+        switch (bestSpellToLearn.rating - bestSpellToCast.rating) {
+            case 1:
+                return `LEARN ${bestSpellToLearn.id}`;
+
+            case 0:
+                return `LEARN ${bestSpellToLearn.id}`;
+
+            case -1:
+                return `CAST ${bestSpellToCast.id}`;
+
+            default:
+                return `CAST ${bestSpellToCast.id}`;
+        }
+    } else if (bestSpellToCast != 'NONE') {
+        return `CAST ${bestSpellToCast.id}`;
+    } else if (bestSpellToLearn != 'NONE') {
+        return `LEARN ${bestSpellToLearn.id}`;
     } else {
-        return 'NONE';
+        return 'REST'
     }
 }
 
-const conjureResource = (i, myResources, spellbook) => {
-    if (i === 0) {
-        //its a blue ingredient
-        //check if +2 blue spell is available
-        const spell = spellbook[0]
-        return canCast(spell);
-    } else {
-        //it's a higher level ingredient
-        if (myResources[i - 1] > 0) {
-            //we have the resource to conjure it from
-            //try casting the appropriate spell
-            const spell = spellbook[i]
-            return canCast(spell);
+const spellOnlyAddsToBag = (spell) => {
+    let spellOnlyAddsItems = true;
+    spell.effect.map(ingredient => {
+        if (ingredient < 0) {
+            spellOnlyAddsItems = false;
+        }
+    })
+    return spellOnlyAddsItems;
+}
+
+
+selectBestSpellToLearn = (tome, resources, recipe, currentHandlingTime) => {
+    //go through all the spells in the spellbook and in the tome
+    //rate them according to drop in handling time
+    const ratedTomeSpells = tome.map(spell => {
+        let ratedSpell;
+        //if we can afford LEARNING the spell and if we can CAST it return rating of spell
+        if (Math.abs(spell.tomeIndex) <= resources[0] && canAffordCast(spell.effect, resources)) {
+            const rating = rateSpell(spell, recipe, resources);
+            ratedSpell = {
+                ...spell,
+                rating,
+                ableToLearn: true
+            };
         } else {
-            //we don't have the resource to conjure it from
-            //try with lower level ingredient
-            return conjureResource(i-1, myResources, spellbook);
+            //otherwise return current handling time
+            ratedSpell = {
+                ...spell,
+                currentHandlingTime,
+                ableToLearn: false
+            };
         }
+        return ratedSpell;
+    });
+        //select the one that brings us closest to pur goal
+    const possibleSpellsToLearn = ratedTomeSpells.filter(spell => {
+        return spell.ableToLearn == true;
+    });
+    let bestSpellToLearn;
+    if (possibleSpellsToLearn.length > 1) {
+        bestSpellToLearn = possibleSpellsToLearn.sort((a, b) => a.rating - b.rating)[0];
+    } else if (possibleSpellsToLearn.length === 0) {
+        bestSpellToLearn = 'NONE';
+    } else {
+        bestSpellToLearn = possibleSpellsToLearn[0];
     }
+    return bestSpellToLearn;
 }
 
-const useMagic = (spellbook, myResources, recipe) => {
-    for (i = 0; i < recipe.ingredients.length; ++i) {
-        //compare resource and ingredient requirement
-        if (myResources[i] < Math.abs(recipe.ingredients[i])) {
-            //don't have the required amount
-            return conjureResource(i, myResources, spellbook);
+selectBestSpellToCast = (spellbook, resources, recipe, currentHandlingTime) => {
+    const ratedOwnSpells = spellbook.map(spell => {
+        let ratedSpell;
+        //if we can afford CASTING the spell and spell is castable return rating of spell
+        //also, casting doesn't overfill bag
+        const isBagOverFilled = sum(castSpell(spell.effect,resources)) > 10;
+        if (canAffordCast(spell.effect, resources) && spell.castable && !isBagOverFilled) {
+            const rating = rateSpell(spell, recipe, resources);
+            ratedSpell = {
+                ...spell,
+                rating,
+                ableToCast: true
+            };
+        } else {
+            //otherwise return current handling time
+            ratedSpell = {
+                ...spell,
+                currentHandlingTime,
+                ableToCast: false
+            };
         }
+        return ratedSpell;
+    });
+
+
+    const possibleSpellsToCast = ratedOwnSpells.filter(spell => {
+        return spell.ableToCast == true;
+    });
+    let bestSpellToCast;
+    if (possibleSpellsToCast.length > 1) {
+        bestSpellToCast = possibleSpellsToCast.sort((a, b) => a.rating - b.rating)[0];
+    } else if (possibleSpellsToCast.length === 0) {
+        bestSpellToCast = 'NONE';
+    } else {
+        bestSpellToCast = possibleSpellsToCast[0];
     }
-    return 'NONE';
+    return bestSpellToCast;
+}
+
+const canAffordCast = (changes, resources) => {
+    let canCast = true;
+    //go through resources
+    resources.map((resource, i)=> {
+        //if they don't go below 0 by casting the spell on it we are ok
+       if (changes[i] + resource < 0) {
+           canCast = false;
+       };
+    });;
+    return canCast;
+}
+
+const castSpell = (changes, resources) => {
+    //go through resources
+    return resources.map((resource,i )=> {
+       return changes[i] + resource;
+    });;
+}
+
+const rateSpell = (spell, recipe, resources) => {
+    //take current state of resources
+    //cast spell on it
+    const resourcesAfterCast = castSpell(spell.effect, resources);
+    //get handling time for new bag content
+    const handlingTimeAfterCast = calculateHandlingTime(recipe.ingredients, resourcesAfterCast);
+    //return handling time after cast
+    return handlingTimeAfterCast;
 }
 
 //---------------------- recipes ----------------------------------------
@@ -151,4 +255,80 @@ const absSum = (array) => {
 
 const cantBeNegative = (number) => {
     return number < 0 ? 0 : number;
+}
+
+// game loop
+while (true) {
+    const actionCount = parseInt(readline()); // the number of spells and recipes in play
+    const recipes = [];
+    const spellbook = [];
+    const tome = [];
+    const myBag = {};
+    for (let i = 0; i < actionCount; i++) {
+        var inputs = readline().split(' ');
+        const actionId = parseInt(inputs[0]); // the unique ID of this spell or recipe
+        const actionType = inputs[1]; // in the first league: BREW; later: CAST, OPPONENT_CAST, LEARN, BREW
+        const delta0 = parseInt(inputs[2]); // tier-0 ingredient change
+        const delta1 = parseInt(inputs[3]); // tier-1 ingredient change
+        const delta2 = parseInt(inputs[4]); // tier-2 ingredient change
+        const delta3 = parseInt(inputs[5]); // tier-3 ingredient change
+        const price = parseInt(inputs[6]); // the price in rupees if this is a potion
+        const tomeIndex = parseInt(inputs[7]); // in the first two leagues: always 0; later: the index in the tome if this is a tome spell, equal to the read-ahead tax
+        const taxCount = parseInt(inputs[8]); // in the first two leagues: always 0; later: the amount of taxed tier-0 ingredients you gain from learning this spell
+        const castable = inputs[9] !== '0'; // in the first league: always 0; later: 1 if this is a castable player spell
+        const repeatable = inputs[10] !== '0'; // for the first two leagues: always 0; later: 1 if this is a repeatable player spell
+        switch (actionType) {
+            case 'BREW':
+                recipes.push({
+                    id: actionId,
+                    ingredients: [delta0, delta1, delta2, delta3],
+                    price,
+                });
+                break;
+
+            case 'CAST':
+                spellbook.push({
+                    id: actionId,
+                    effect: [delta0, delta1, delta2, delta3],
+                    castable,
+                    repeatable
+                });
+                break;
+
+            case 'LEARN':
+                tome.push({
+                    id: actionId,
+                    effect: [delta0, delta1, delta2, delta3],
+                    repeatable,
+                    tomeIndex,
+                    taxCount,
+                });
+                break;
+
+            default:
+                break;
+        };
+
+    }
+    for (let i = 0; i < 2; i++) {
+        var inputs = readline().split(' ');
+        const inv0 = parseInt(inputs[0]); // tier-0 ingredients in inventory
+        const inv1 = parseInt(inputs[1]);
+        const inv2 = parseInt(inputs[2]);
+        const inv3 = parseInt(inputs[3]);
+        const score = parseInt(inputs[4]); // amount of rupees
+        if (i == 0) {
+            myBag.resources = [inv0, inv1, inv2, inv3];
+            myBag.money = score;
+        }
+    }
+
+    // Write an action using console.log()
+    // To debug: console.error('Debug messages...');
+
+
+    // in the first league: BREW <id> | WAIT; later: BREW <id> | CAST <id> [<times>] | LEARN <id> | REST | WAIT
+    const action = playRound(recipes, myBag, spellbook, tome);
+
+    console.log(action);
 }
